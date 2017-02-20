@@ -1,0 +1,29 @@
+{
+	"FileVersion" : 3,
+	"Version" : 1,
+	"VersionName" : "1.0",
+	"FriendlyName" : "JScript Plugin",
+	"Description" : "Typescript plugin for UE4.",
+	"Category" : "Script",
+	"CreatedBy" : "gamemake(gamemake@gmail.com)",
+	"CreatedByURL" : "http://github.com/gamemake",
+	"DocsURL" : "",
+	"MarketplaceURL" : "",
+	"SupportURL" : "",
+	"EnabledByDefault" : true,
+	"CanContainContent" : false,
+	
+	"Modules" :
+	[
+		{
+			"Name": "V8Plugin",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault"
+		},
+		{
+			"Name" : "JScriptPlugin",
+			"Type" : "Runtime",
+			"LoadingPhase" : "PreDefault"
+		}
+	]
+}
