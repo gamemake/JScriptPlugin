@@ -1,0 +1,17 @@
+{
+    "compilerOptions": {
+        "target": "ES5",
+        "module": "commonjs",
+        "inlineSourceMap": true,
+        "noImplicitReturns": true,
+        "noImplicitThis": true,
+        "alwaysStrict": true,
+        "experimentalDecorators": true,
+        "removeComments": true,
+        "declaration": true,
+        "outDir": "./Output"
+    },
+    "files": [
+        "DerivedClass.ts"
+    ]
+}
