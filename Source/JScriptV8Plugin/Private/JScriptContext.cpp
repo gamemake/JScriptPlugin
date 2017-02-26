@@ -671,22 +671,21 @@ FJScriptContext::FV8UClass* FJScriptContext::GetUClassInfo(UClass* Class)
 
 	for (TFieldIterator<UFunction> It(Class, EFieldIteratorFlags::ExcludeSuper); It; ++It)
 	{
-		auto Function = *It;
 		FString FunctionName;
-		Function->GetName(FunctionName);
+		It->GetName(FunctionName);
 
-		if ((Function->FunctionFlags & FUNC_Static))
+		if ((It->FunctionFlags & FUNC_Static))
 		{
 			FunctionTemplate->Set(
 				ToV8String(isolate, TCHAR_TO_UTF8(*FunctionName)),
-				v8::FunctionTemplate::New(isolate, &FJScriptContext::UClass_StaticInvoke, v8::External::New(isolate, Function))
+				v8::FunctionTemplate::New(isolate, &FJScriptContext::UClass_Invoke, v8::External::New(isolate, *It))
 			);
 		}
 		else
 		{
 			FunctionTemplate->PrototypeTemplate()->Set(
 				ToV8String(isolate, TCHAR_TO_UTF8(*FunctionName)),
-				v8::FunctionTemplate::New(isolate, &FJScriptContext::UClass_MemberInvoke, v8::External::New(isolate, Function))
+				v8::FunctionTemplate::New(isolate, &FJScriptContext::UClass_Invoke, v8::External::New(isolate, *It))
 			);
 		}
 	}
@@ -800,14 +799,17 @@ void FJScriptContext::UClass_SetProperty(const v8::FunctionCallbackInfo<v8::Valu
 	{
 		auto JSContext = v8::Isolate::GetCurrent()->GetCurrentContext();
 		auto Context = (FJScriptContext*)v8::External::Cast(*JSContext->GetEmbedderData(1))->Value();
-		auto This = (UObject*)v8::External::Cast(*args.This()->GetInternalField(0))->Value();
-		auto Property = (UProperty*)v8::External::Cast(*args.Data())->Value();
-		if (This && Property && This->IsValidLowLevel() && Property->IsValidLowLevel()) {
-			auto Offset = Property->GetOffset_ForInternal();
-			auto JSValue = args[0];
-			if (!Context->ConvertJSValue(JSValue, (uint8*)This, Property))
-			{
-				ThrowException(isolate, "SetProperty failed");
+		if (Context)
+		{
+			auto This = (UObject*)v8::External::Cast(*args.This()->GetInternalField(0))->Value();
+			auto Property = (UProperty*)v8::External::Cast(*args.Data())->Value();
+			if (This && Property && This->IsValidLowLevel() && Property->IsValidLowLevel()) {
+				auto Offset = Property->GetOffset_ForInternal();
+				auto JSValue = args[0];
+				if (!Context->ConvertJSValue(JSValue, (uint8*)This, Property))
+				{
+					ThrowException(isolate, "SetProperty failed");
+				}
 			}
 		}
 	}
@@ -818,77 +820,25 @@ void FJScriptContext::UClass_GetProperty(const v8::FunctionCallbackInfo<v8::Valu
 	v8::HandleScope handle_scope(isolate);
 	auto JSContext = v8::Isolate::GetCurrent()->GetCurrentContext();
 	auto Context = (FJScriptContext*)v8::External::Cast(*JSContext->GetEmbedderData(1))->Value();
-	auto This = (UObject*)v8::External::Cast(*args.This()->GetInternalField(0))->Value();
-	auto Property = (UProperty*)v8::External::Cast(*args.Data())->Value();
-	if (This && Property && This->IsValidLowLevel() && Property->IsValidLowLevel()) {
-		v8::Local<v8::Value> ReturnValue = Context->ConvertValue((const uint8_t*)This, Property);
-		if (ReturnValue.IsEmpty())
-		{
-			ThrowException(isolate, "GetProperty failed");
-		}
-		else
-		{
-			args.GetReturnValue().Set(ReturnValue);
+	if (Context)
+	{
+		auto This = (UObject*)v8::External::Cast(*args.This()->GetInternalField(0))->Value();
+		auto Property = (UProperty*)v8::External::Cast(*args.Data())->Value();
+		if (This && Property && This->IsValidLowLevel() && Property->IsValidLowLevel()) {
+			v8::Local<v8::Value> ReturnValue = Context->ConvertValue((const uint8_t*)This, Property);
+			if (ReturnValue.IsEmpty())
+			{
+				ThrowException(isolate, "GetProperty failed");
+			}
+			else
+			{
+				args.GetReturnValue().Set(ReturnValue);
+			}
 		}
 	}
 }
 
-void FJScriptContext::UClass_Invoke(UObject* This, UFunction* Function, const v8::FunctionCallbackInfo<v8::Value>& args)
-{
-	uint8* Data = (uint8*)FMemory_Alloca(Function->ParmsSize);
-
-	int32 ArgIndex = 0;
-	UProperty* ReturnProperty = nullptr;
-	for (TFieldIterator<UProperty> It(Function); It; ++It)
-	{
-		if ((It->PropertyFlags & (CPF_Parm | CPF_ReturnParm)) != CPF_Parm)
-		{
-			ReturnProperty = *It;
-			return;
-		}
-
-		if (ArgIndex >= args.Length())
-		{
-			ThrowException(isolate, "");
-			return;
-		}
-
-		v8::Local<v8::Value> arg = args[ArgIndex++];
-		if (!ConvertJSValue(arg, Data, *It))
-		{
-			ThrowException(isolate, "");
-			return;
-		}
-	}
-
-	This->ProcessEvent(Function, Data);
-
-	if (ReturnProperty)
-	{
-		auto ReturnValue = ConvertValue(Data, ReturnProperty);
-		if (!ReturnValue.IsEmpty())
-		{
-			ThrowException(isolate, "");
-			return;
-		}
-		args.GetReturnValue().Set(ReturnValue);
-	}
-}
-
-void FJScriptContext::UClass_MemberInvoke(const v8::FunctionCallbackInfo<v8::Value>& args)
-{
-	v8::HandleScope handle_scope(isolate);
-	auto JSContext = v8::Isolate::GetCurrent()->GetCurrentContext();
-	auto Context = (FJScriptContext*)v8::External::Cast(*JSContext->GetEmbedderData(1))->Value();
-	auto This = (UObject*)v8::External::Cast(*args.This()->GetInternalField(0))->Value();
-	auto Function = (UFunction*)v8::External::Cast(*args.Data())->Value();
-	if (This && Function && This->IsValidLowLevel() && Function->IsValidLowLevel())
-	{
-		Context->UClass_Invoke(This, Function, args);
-	}
-}
-
-void FJScriptContext::UClass_StaticInvoke(const v8::FunctionCallbackInfo<v8::Value>& args)
+void FJScriptContext::UClass_Invoke(const v8::FunctionCallbackInfo<v8::Value>& args)
 {
 	v8::HandleScope handle_scope(isolate);
 	auto JSContext = v8::Isolate::GetCurrent()->GetCurrentContext();
@@ -896,6 +846,104 @@ void FJScriptContext::UClass_StaticInvoke(const v8::FunctionCallbackInfo<v8::Val
 	auto Function = (UFunction*)v8::External::Cast(*args.Data())->Value();
 	if (Function && Function->IsValidLowLevel())
 	{
-		Context->UClass_Invoke(Function->GetClass()->GetDefaultObject(), Function, args);
+		UObject* This;
+		if (Function->FunctionFlags & FUNC_Static)
+		{
+			This = Function->GetClass()->GetDefaultObject();
+		}
+		else
+		{
+			This = (UObject*)v8::External::Cast(*args.This()->GetInternalField(0))->Value();
+		}
+
+		uint8* Data = (uint8*)FMemory_Alloca(Function->ParmsSize);
+
+		int32 ArgIndex = 0;
+		UProperty* ReturnProperty = nullptr;
+		bool bOutParams = false;
+		for (TFieldIterator<UProperty> It(Function); It; ++It)
+		{
+			if ((It->PropertyFlags & (CPF_Parm | CPF_ReturnParm)) != CPF_Parm)
+			{
+				ReturnProperty = *It;
+				return;
+			}
+
+			if (ArgIndex >= args.Length())
+			{
+				ThrowException(isolate, "");
+				return;
+			}
+
+			v8::Local<v8::Value> arg = args[ArgIndex++];
+			if (!Context->ConvertJSValue(arg, Data, *It))
+			{
+				ThrowException(isolate, "");
+				return;
+			}
+
+			if ((It->PropertyFlags & (CPF_ConstParm | CPF_OutParm)) == CPF_OutParm)
+			{
+				bOutParams = true;
+			}
+		}
+
+		This->ProcessEvent(Function, Data);
+
+		if (ArgIndex < args.Length() && bOutParams)
+		{
+			auto RetVal = v8::Local<v8::Object>::Cast(args[ArgIndex]);
+			if (RetVal.IsEmpty())
+			{
+				ThrowException(isolate, "");
+				return;
+			}
+
+			for (TFieldIterator<UProperty> It(Function); It; ++It)
+			{
+				if ((It->PropertyFlags & (CPF_Parm | CPF_ReturnParm)) != CPF_Parm)
+				{
+					continue;
+				}
+				if ((It->PropertyFlags & (CPF_ConstParm | CPF_OutParm)) != CPF_OutParm)
+				{
+					continue;
+				}
+
+				auto JSValue = Context->ConvertValue(Data, *It);
+				if (JSValue.IsEmpty())
+				{
+					ThrowException(isolate, "");
+				}
+				RetVal->Set(ToV8String(isolate, TCHAR_TO_UTF8(*(It->GetFName().ToString()))), JSValue);
+			}
+
+			if (ReturnProperty)
+			{
+				auto ReturnValue = Context->ConvertValue(Data, ReturnProperty);
+				if (!ReturnValue.IsEmpty())
+				{
+					ThrowException(isolate, "");
+					return;
+				}
+				RetVal->Set(ToV8String(isolate, TCHAR_TO_UTF8("$")), ReturnValue);
+			}
+
+			args.GetReturnValue().Set(RetVal);
+		}
+		else
+		{
+			if (ReturnProperty)
+			{
+				auto ReturnValue = Context->ConvertValue(Data, ReturnProperty);
+				if (!ReturnValue.IsEmpty())
+				{
+					ThrowException(isolate, "");
+					return;
+				}
+				args.GetReturnValue().Set(ReturnValue);
+			}
+
+		}
 	}
 }

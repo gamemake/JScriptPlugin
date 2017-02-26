@@ -50,9 +50,7 @@ private:
 	static void ModuleDefine(const v8::FunctionCallbackInfo<v8::Value>& args);
 	static void UClass_SetProperty(const v8::FunctionCallbackInfo<v8::Value>& args);
 	static void UClass_GetProperty(const v8::FunctionCallbackInfo<v8::Value>& args);
-	void UClass_Invoke(UObject* This, UFunction* Function, const v8::FunctionCallbackInfo<v8::Value>& args);
-	static void UClass_MemberInvoke(const v8::FunctionCallbackInfo<v8::Value>& args);
-	static void UClass_StaticInvoke(const v8::FunctionCallbackInfo<v8::Value>& args);
+	static void UClass_Invoke(const v8::FunctionCallbackInfo<v8::Value>& args);
 
 	v8::Persistent<v8::Context> Context;
 	TMap<FString, FV8UClass*> ClassMap;
