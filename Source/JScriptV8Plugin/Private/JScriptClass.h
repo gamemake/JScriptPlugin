@@ -1,32 +1,31 @@
 #pragma once
 
+class FJScriptContext;
+
 class FJScriptClass : public IJScriptClass
 {
 	friend class FJScriptContext;
 
-protected:
 public:
-	FJScriptClass(v8::Local<v8::Function> Function);
+	FJScriptClass(FJScriptContext* context, v8::Local<v8::Function>& constructor, v8::Local<v8::Object>& metainfo);
 	virtual ~FJScriptClass();
 
 public:
-	virtual const FString& GetUEClassName();
-	virtual const FString& GetClassName();
+	bool LoadMetaInfo(const FJScriptClassInfo& metainfo);
+	bool ParseJSMetaInfo();
 
-	virtual TArray<FJScriptField>& GetFields();
-	virtual TArray<FJScriptMethod>& GetMethods();
+	virtual const FString& GetClassName() const override;
+	virtual const FString& GetParentClassName() const override;
 
-public:
-
-	FJScriptField* GetField(FString& Name);
-	FJScriptMethod* GetMethod(FString& Name);
+	virtual const TArray<FJScriptFieldInfo>& GetFields() const override;
+	virtual const TArray<FJScriptMethodInfo>& GetMethods() const override;
 
 private:
-	v8::Persistent<v8::Function> JSClass;
-	FString UEClassName;
-	FString ClassName;
-	TArray<FJScriptField> Fields;
-	TArray<FJScriptMethod> Methods;
-	TMap<FString, int> FieldMap;
-	TMap<FString, int> MethodMap;
+	bool ParserField(FJScriptFieldInfo& Field, v8::Local<v8::Object>& FieldInfo);
+
+	FJScriptContext* Context;
+	v8::Persistent<v8::Function> Construstor;
+	v8::Persistent<v8::Object> JSMetaInfo;
+
+	FJScriptClassInfo MetaInfo;
 };

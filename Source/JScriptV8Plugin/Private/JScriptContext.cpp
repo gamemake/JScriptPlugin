@@ -77,28 +77,8 @@ IJScriptContext* JScriptEngine::CreateContext()
 	);
 
 	v8::Local<v8::Context> context = v8::Context::New(isolate, NULL, global);
-	FJScriptContext* retval = new FJScriptContext(context);
-
-	{
-		v8::Context::Scope context_scope(context);
-		v8::Local<v8::Object> g = context->Global();
-		g->Set(
-			ToV8Name(isolate, "console"),
-			ExecuteString(isolate, context, script_console)
-		);
-		g->Set(
-			ToV8Name(isolate, "Reflect"),
-			ExecuteString(isolate, context, script_reflect_metadata)
-		);
-		g->Set(
-			ToV8Name(isolate, "define"),
-			v8::FunctionTemplate::New(isolate, &FJScriptContext::ModuleDefine, v8::External::New(v8::Isolate::GetCurrent(), retval))->GetFunction(context).ToLocalChecked()
-		);
-
-		context->SetEmbedderData(1, v8::External::New(isolate, retval));
-	}
-
-	return retval;
+	v8::Context::Scope context_scope(context);
+	return new FJScriptContext(context);
 }
 
 void JScriptEngine::FreeContext(IJScriptContext* Context)
@@ -110,16 +90,54 @@ void JScriptEngine::FreeContext(IJScriptContext* Context)
 
 FJScriptContext::FJScriptContext(v8::Local<v8::Context>& context)
 {
+	v8::HandleScope handle_scope(isolate);
+
+	v8::Local<v8::Object> g = context->Global();
+	g->Set(
+		ToV8Name(isolate, "console"),
+		ExecuteString(isolate, context, script_console)
+	);
+	g->Set(
+		ToV8Name(isolate, "define"),
+		v8::FunctionTemplate::New(isolate, &FJScriptContext::ModuleDefine, v8::External::New(v8::Isolate::GetCurrent(), this))->GetFunction(context).ToLocalChecked()
+	);
+	g->Set(
+		ToV8Name(isolate, "registerClass"),
+		v8::FunctionTemplate::New(isolate, &FJScriptContext::RegisterJSClass, v8::External::New(v8::Isolate::GetCurrent(), this))->GetFunction(context).ToLocalChecked()
+	);
+
+	auto BlueprintJs = v8::Local<v8::Object>::Cast(ExecuteString(isolate, context, script_blueprint));
+	if (!BlueprintJs.IsEmpty())
+	{
+		auto BlueprintFunc = v8::Local<v8::Function>::Cast(BlueprintJs->Get(ToV8String(isolate, "blueprint")));
+		auto UpdateBPInfoFunc = v8::Local<v8::Function>::Cast(BlueprintJs->Get(ToV8String(isolate, "updateBPInfo")));
+		if (!BlueprintFunc.IsEmpty() && !UpdateBPInfoFunc.IsEmpty())
+		{
+			g->Set(
+				ToV8Name(isolate, "blueprint"),
+				BlueprintFunc
+			);
+			UpdateBPInfo.Reset(isolate, UpdateBPInfoFunc);
+		}
+	}
+
+	context->SetEmbedderData(1, v8::External::New(isolate, this));
 	Context.Reset(isolate, context);
 }
 
 FJScriptContext::~FJScriptContext()
 {
-	for (auto& Elem : ClassMap)
+	for (auto& Elem : UClassMap)
 	{
 		delete Elem.Value;
 	}
-	ClassMap.Empty();
+	UClassMap.Empty();
+
+	for (auto& Elem : JSClassMap)
+	{
+		delete Elem.Value;
+	}
+	JSClassMap.Empty();
 
 	for (auto& Elem : Modules)
 	{
@@ -187,6 +205,39 @@ bool FJScriptContext::Execute(const FString& Script)
 	return !result.IsEmpty();
 }
 
+IJScriptClass* FJScriptContext::CompileScript(const FString& Filename)
+{
+	FString SourceCode;
+	if (!FFileHelper::LoadFileToString(SourceCode, *Filename))
+	{
+		return nullptr;
+	}
+
+	auto JSClass = CompileScript(Filename, SourceCode);
+	if (JSClass && Filename.EndsWith(TEXT(".js")))
+	{
+		FString DefFile, DefText;
+		DefFile = Filename.Mid(0, Filename.Len() - 3) + ".d.ts";
+		if (FFileHelper::LoadFileToString(DefText, *DefFile))
+		{
+			v8::Isolate::Scope isolate_scope(isolate);
+			v8::HandleScope handle_scope(isolate);
+			v8::Local<v8::Context> context = Context.Get(isolate);
+			v8::Context::Scope context_scope(context);
+			v8::TryCatch try_catch;
+			v8::Local<v8::Function> Function = UpdateBPInfo.Get(isolate);
+			v8::Local<v8::Value> Args[1];
+			Args[0] = ToV8String(isolate, DefText);
+			auto retval = Function->Call(context, v8::Undefined(isolate), 1, Args);
+			if (retval.IsEmpty())
+			{
+				ReportException(isolate, try_catch);
+			}
+		}
+	}
+	return JSClass;
+}
+
 IJScriptClass* FJScriptContext::CompileScript(const FString& Filename, const FString& SourceCode)
 {
 	v8::Isolate::Scope isolate_scope(isolate);
@@ -218,15 +269,19 @@ IJScriptClass* FJScriptContext::CompileScript(const FString& Filename, const FSt
 		return nullptr;
 	}
 
-	v8::Local<v8::String> defaultName = ToV8String(isolate, "default");
-	auto ClassFunction = v8::Local<v8::Function>::Cast(Exports->Get(defaultName));
+	auto Default = Exports->Get(ToV8String(isolate, "default"));
+	if (Default.IsEmpty())
+	{
+		return nullptr;
+	}
+	auto ClassFunction = v8::Local<v8::Function>::Cast(Default);
 	if (ClassFunction.IsEmpty())
 	{
 		return nullptr;
 	}
 
-	auto Class = new FJScriptClass(ClassFunction);
-	return Class;
+	auto ClassName = ToUEString(ClassFunction->Get(ToV8String(isolate, "name")));
+	return GetJSClass(ClassName);
 }
 
 void FJScriptContext::FreeScript(IJScriptClass* Class)
@@ -236,6 +291,16 @@ void FJScriptContext::FreeScript(IJScriptClass* Class)
 	v8::Context::Scope context_scope(Context.Get(isolate));
 
 	delete (FJScriptClass*)(Class);
+}
+
+IJScriptClass* FJScriptContext::GetJSClass(const FString& ClassName)
+{
+	auto it = JSClassMap.Find(ClassName);
+	if (it)
+	{
+		return *it;
+	}
+	return nullptr;
 }
 
 IJScriptObject* FJScriptContext::CreateObject(IJScriptClass* Class)
@@ -642,7 +707,7 @@ bool FJScriptContext::ConvertJSValue(v8::Local<v8::Value>& JSValue, uint8* Data,
 
 UClass* FJScriptContext::GetUClassByName(const FString& ClassName)
 {
-	auto c = ClassMap.Find(ClassName);
+	auto c = UClassMap.Find(ClassName);
 	return c ? (*c)->Class : nullptr;
 }
 
@@ -650,7 +715,7 @@ FJScriptContext::FV8UClass* FJScriptContext::GetUClassInfo(UClass* Class)
 {
 	FString ClassName;
 	Class->GetName(ClassName);
-	if (auto c = ClassMap.Find(ClassName)) return *c;
+	if (auto c = UClassMap.Find(ClassName)) return *c;
 
 	auto FunctionTemplate = v8::FunctionTemplate::New(isolate);
 	FunctionTemplate->SetClassName(ToV8String(isolate, TCHAR_TO_UTF8(*ClassName)));
@@ -695,7 +760,7 @@ FJScriptContext::FV8UClass* FJScriptContext::GetUClassInfo(UClass* Class)
 	V8UClass->FunctionTemplate.Reset(isolate, FunctionTemplate);
 	V8UClass->ObjectTemplate.Reset(isolate, v8::ObjectTemplate::New(isolate, FunctionTemplate));
 	V8UClass->Function.Reset(isolate, FunctionTemplate->GetFunction());
-	ClassMap.Add(ClassName, V8UClass);
+	UClassMap.Add(ClassName, V8UClass);
 	return V8UClass;
 }
 
@@ -733,28 +798,28 @@ void FJScriptContext::ModuleDefine(const v8::FunctionCallbackInfo<v8::Value>& ar
 {
 	v8::HandleScope handle_scope(v8::Isolate::GetCurrent());
 
-	if (args.Length() != 3) return;
-	if (!args[0]->IsString()) return;
-	if (!args[1]->IsArray()) return;
-	if (!args[2]->IsFunction()) return;
+	if (args.Length() != 3 || !args[0]->IsString() || !args[1]->IsArray() || !args[2]->IsFunction())
+	{
+		ThrowException(isolate, "invalid parameter");
+		return;
+	}
 
 	auto context = (FJScriptContext*)(v8::Local<v8::External>::Cast(args.Data())->Value());
-	if (!context) return;
+	if (!context) {
+		ThrowException(isolate, "invalid context");
+		return;
+	}
 
 	auto id = v8::Local<v8::String>::Cast(args[0]);
-	if (id.IsEmpty()) return;
 	auto depends = v8::Local<v8::Array>::Cast(args[1]);
-	if (depends.IsEmpty()) return;
 	auto factory = v8::Local<v8::Function>::Cast(args[2]);
-	if (factory.IsEmpty()) return;
-
 	auto require = v8::Object::New(args.GetIsolate());
 	auto exports = v8::Object::New(args.GetIsolate());
 
 	v8::Local<v8::Value> callArgs[30];
 	if (depends->Length() > sizeof(callArgs) / sizeof(callArgs[0]))
 	{
-		args.GetIsolate()->ThrowException(v8::Exception::Error(ToV8String(args.GetIsolate(), "too many dependencies")));
+		ThrowException(isolate, "too many dependencies");
 		return;
 	}
 
@@ -784,12 +849,50 @@ void FJScriptContext::ModuleDefine(const v8::FunctionCallbackInfo<v8::Value>& ar
 
 	v8::Local<v8::Value> This = v8::Null(args.GetIsolate());
 	v8::Local<v8::Value> retval = factory->Call(This, depends->Length(), callArgs);
-	if (retval.IsEmpty()) return;
+	if (retval.IsEmpty())
+	{
+		return;
+	}
 
 	auto Module = new FV8Module();
 	Module->Name = UTF8_TO_TCHAR(*id);
 	Module->Exports.Reset(args.GetIsolate(), exports);
 	context->Modules.Add(Module->Name, Module);
+
+	args.GetReturnValue().Set(exports);
+}
+
+void FJScriptContext::RegisterJSClass(const v8::FunctionCallbackInfo<v8::Value>& args)
+{
+	v8::HandleScope handle_scope(isolate);
+
+	auto context = (FJScriptContext*)(v8::Local<v8::External>::Cast(args.Data())->Value());
+	if (!context)
+	{
+		ThrowException(isolate, "invalid context");
+		return;
+	}
+
+	if (args.Length() != 3 || !args[0]->IsString() || !args[1]->IsFunction() || !args[2]->IsObject())
+	{
+		ThrowException(isolate, "invalid parameter");
+		return;
+	}
+
+	auto JSClassName = v8::Local<v8::String>::Cast(args[0]);
+	auto Constructor = v8::Local<v8::Function>::Cast(args[1]);
+	auto MetaInfo = v8::Local<v8::Object>::Cast(args[2]);
+
+	v8::String::Utf8Value JSClassNameStr(JSClassName);
+	FString ClassName = ToUEString(JSClassName);
+	if (context->JSClassMap.Find(ClassName))
+	{
+		ThrowException(isolate, "invalid JSClass already exists");
+		return;
+	}
+
+	auto JSClass = new FJScriptClass(context, Constructor, MetaInfo);
+	context->JSClassMap.Add(ClassName, JSClass);
 }
 
 void FJScriptContext::UClass_SetProperty(const v8::FunctionCallbackInfo<v8::Value>& args)
@@ -926,7 +1029,7 @@ void FJScriptContext::UClass_Invoke(const v8::FunctionCallbackInfo<v8::Value>& a
 					ThrowException(isolate, "");
 					return;
 				}
-				RetVal->Set(ToV8String(isolate, TCHAR_TO_UTF8("$")), ReturnValue);
+				RetVal->Set(ToV8String(isolate, "$"), ReturnValue);
 			}
 
 			args.GetReturnValue().Set(RetVal);

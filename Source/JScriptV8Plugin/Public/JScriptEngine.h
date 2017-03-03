@@ -1,16 +1,34 @@
 #pragma once
 
-struct FJScriptField
+class IJScriptClass;
+class IJScriptObject;
+
+struct FJScriptFieldInfo
 {
+	bool IsStatic;
 	FString Name;
-	UClass* Type;
+	bool IsArray;
+	FString Type;
+	UClass* PropertyClass;
+	IJScriptClass* JSClass;
 };
 
-struct FJScriptMethod
+struct FJScriptMethodInfo
 {
+	bool IsStatic;
 	FString Name;
-	TArray<FJScriptField> Parameters;
-	FJScriptField ReturnValue;
+	TArray<FJScriptFieldInfo> Params;
+	FJScriptFieldInfo ReturnValue;
+};
+
+struct FJScriptClassInfo
+{
+	FString ClassName;
+	FString ParentClassName;
+	UClass* ParentClassUE;
+	IJScriptClass* ParentClassJS;
+	TArray<FJScriptFieldInfo> Fields;
+	TArray<FJScriptMethodInfo> Methods;
 };
 
 class IJScriptClass
@@ -20,11 +38,11 @@ protected:
 	virtual ~IJScriptClass() {}
 
 public:
-	virtual const FString& GetUEClassName() = 0;
-	virtual const FString& GetClassName() = 0;
+	virtual const FString& GetClassName() const = 0;
+	virtual const FString& GetParentClassName() const = 0;
 
-	virtual TArray<FJScriptField>& GetFields() = 0;
-	virtual TArray<FJScriptMethod>& GetMethods() = 0;
+	virtual const TArray<FJScriptFieldInfo>& GetFields() const = 0;
+	virtual const TArray<FJScriptMethodInfo>& GetMethods() const = 0;
 };
 
 class IJScriptObject
@@ -51,8 +69,11 @@ public:
 	virtual void Expose(const FString& Name, const FString& Script) = 0;
 	virtual bool Execute(const FString& Script) = 0;
 
+	virtual IJScriptClass* CompileScript(const FString& Filename) = 0;
 	virtual IJScriptClass* CompileScript(const FString& Filename, const FString& SourceCode) = 0;
 	virtual void FreeScript(IJScriptClass* Class) = 0;
+
+	virtual IJScriptClass* GetJSClass(const FString& ClassName) = 0;
 
 	virtual IJScriptObject* CreateObject(IJScriptClass* Class) = 0;
 	virtual void FreeObject(IJScriptObject* Object) = 0;

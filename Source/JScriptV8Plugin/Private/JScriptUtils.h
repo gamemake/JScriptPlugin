@@ -2,7 +2,10 @@
 
 const char* ToCString(const v8::String::Utf8Value& value);
 v8::Local<v8::String> ToV8String(v8::Isolate* isolate, const char* value);
+v8::Local<v8::String> ToV8String(v8::Isolate* isolate, const FString& value);
 v8::Local<v8::Name> ToV8Name(v8::Isolate* isolate, const char* name);
+FString ToUEString(v8::Local<v8::String> value);
+FString ToUEString(v8::Local<v8::Value> value);
 
 bool GetClassName(v8::Isolate* isolate, v8::Local<v8::Value>& JSValue, FString& ClassName);
 

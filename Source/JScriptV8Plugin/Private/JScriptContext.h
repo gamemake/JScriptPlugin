@@ -1,5 +1,8 @@
 #pragma once
 
+class FJScriptClass;
+class FJScriptObject;
+
 class FJScriptContext : public IJScriptContext
 {
 	friend class JScriptEngine;
@@ -14,8 +17,11 @@ public:
 	virtual void Expose(const FString& Name, const FString& Script) override;
 	virtual bool Execute(const FString& Script) override;
 
+	virtual IJScriptClass* CompileScript(const FString& Filename) override;
 	virtual IJScriptClass* CompileScript(const FString& Filename, const FString& SourceCode) override;
 	virtual void FreeScript(IJScriptClass* Class) override;
+
+	virtual IJScriptClass* GetJSClass(const FString& ClassName) override;
 
 	virtual IJScriptObject* CreateObject(IJScriptClass* Class) override;
 	virtual void FreeObject(IJScriptObject* Object) override;
@@ -48,11 +54,14 @@ protected:
 
 private:
 	static void ModuleDefine(const v8::FunctionCallbackInfo<v8::Value>& args);
+	static void RegisterJSClass(const v8::FunctionCallbackInfo<v8::Value>& args);
 	static void UClass_SetProperty(const v8::FunctionCallbackInfo<v8::Value>& args);
 	static void UClass_GetProperty(const v8::FunctionCallbackInfo<v8::Value>& args);
 	static void UClass_Invoke(const v8::FunctionCallbackInfo<v8::Value>& args);
 
 	v8::Persistent<v8::Context> Context;
-	TMap<FString, FV8UClass*> ClassMap;
+	v8::Persistent<v8::Function> UpdateBPInfo;
+	TMap<FString, FV8UClass*> UClassMap;
+	TMap<FString, FJScriptClass*> JSClassMap;
 	TMap<FString, FV8Module*> Modules;
 };

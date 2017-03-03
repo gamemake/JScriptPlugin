@@ -14,11 +14,38 @@ v8::Local<v8::String> ToV8String(v8::Isolate* isolate, const char* value)
 	return handle_scope.Escape(retval);
 }
 
+v8::Local<v8::String> ToV8String(v8::Isolate* isolate, const FString& value)
+{
+	v8::EscapableHandleScope handle_scope(isolate);
+	auto retval = v8::String::NewFromUtf8(isolate, TCHAR_TO_UTF8(*value), v8::NewStringType::kNormal).ToLocalChecked();
+	return handle_scope.Escape(retval);
+}
+
 v8::Local<v8::Name> ToV8Name(v8::Isolate* isolate, const char* name)
 {
 	v8::EscapableHandleScope handle_scope(isolate);
 	v8::Local<v8::Name> retval = ToV8String(isolate, name);
 	return handle_scope.Escape(retval);
+}
+
+FString ToUEString(v8::Local<v8::String> value)
+{
+	FString retval;
+	v8::String::Utf8Value str(value);
+	retval = UTF8_TO_TCHAR(*str);
+	return retval;
+}
+
+FString ToUEString(v8::Local<v8::Value> value)
+{
+	FString retval;
+	auto jsstr = v8::Local<v8::String>::Cast(value);
+	if (!jsstr.IsEmpty())
+	{
+		v8::String::Utf8Value str(value);
+		retval = UTF8_TO_TCHAR(*str);
+	}
+	return retval;
 }
 
 bool GetClassName(v8::Isolate* isolate, v8::Local<v8::Value>& JSValue, FString& ClassName)
