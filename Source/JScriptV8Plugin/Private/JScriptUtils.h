@@ -13,3 +13,7 @@ v8::Local<v8::String> LoadFileToString(v8::Isolate* isolate, const char* filenam
 v8::Local<v8::Value> ExecuteString(v8::Isolate* isolate, v8::Local<v8::Context>& context, const char* code);
 void ReportException(v8::Isolate* isolate, v8::TryCatch& try_catch);
 void ThrowException(v8::Isolate* isolate, const char* Message);
+
+FString GetClassName(UClass* Class);
+FString GetStructName(UStruct* Struct);
+FString GetEnumName(UEnum* Enum);

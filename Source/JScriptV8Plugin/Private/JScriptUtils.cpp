@@ -146,3 +146,32 @@ void ThrowException(v8::Isolate* isolate, const char* Message)
 {
 	isolate->ThrowException(v8::Exception::Error(ToV8String(isolate, Message)));
 }
+
+FString GetClassName(UClass* Class)
+{
+	if (Class->GetPrefixCPP())
+	{
+		return FString::Printf(TEXT("%s%s"), Class->GetPrefixCPP(), *Class->GetName());
+	}
+	else
+	{
+		return Class->GetName();
+	}
+}
+
+FString GetStructName(UStruct* Struct)
+{
+	if (Struct->GetPrefixCPP())
+	{
+		return FString::Printf(TEXT("%s%s"), Struct->GetPrefixCPP(), *Struct->GetName());
+	}
+	else
+	{
+		return Struct->GetName();
+	}
+}
+
+FString GetEnumName(UEnum* Enum)
+{
+	return Enum->GetName();
+}
